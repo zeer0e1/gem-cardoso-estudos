@@ -56,3 +56,14 @@ Executar `backend/admin.sql` sobre a instalação v2 existente. Os perfis recebe
 Somente contas existentes em Authentication > Users podem ser autorizadas por e-mail. A senha não é cadastrada nem alterada por esta página. As operações administrativas exigem internet e não entram na fila offline. O próprio administrador não pode se desativar nem se rebaixar. Mudanças concorrentes são recusadas por versão; a auditoria registra autor, alvo e valores anteriores e posteriores.
 
 `backend/verify-admin.sql` verifica permissões, autorização, suspensão, conflitos e auditoria com dados transacionais revertidos ao terminar.
+
+### Contas com usuário e senha
+Administradores podem abrir Instrutores → Cadastrar instrutor e informar nome, usuário único, senha e permissão. Não exige e-mail real nem SMTP. O usuário aceita 3–32 caracteres minúsculos (letras sem acento, números, ponto, hífen e sublinhado) e permanece fixo; a senha tem 8–128 caracteres. Contas antigas continuam entrando por e-mail. Cadastro exige conexão; o uso offline continua disponível após o primeiro login autorizado.
+
+Instale backend/username-accounts.sql depois de admin.sql. Implante backend/create-instructor/index.js como função gem-create-instructor (index.ts no editor). A função valida o token com Auth, confere o administrador ativo no banco, reserva uma identidade estável e usa a API administrativa de Auth apenas no servidor. Usa SUPABASE_URL, SUPABASE_ANON_KEY e SUPABASE_SERVICE_ROLE_KEY do ambiente do Supabase; nunca copie chaves privilegiadas para o cliente. A verificação JWT no gateway pode ficar habilitada quando compatível com os tokens do projeto; a função também verifica a autenticação internamente.
+
+O endereço interno usuario@login.gem.invalid é somente um identificador técnico do Supabase, sem caixa de correio. Não existe recuperação de senha por e-mail para essas contas. A redefinição ainda exige o responsável pelo projeto; esta versão não tem uma página de troca de senha. Senhas não entram em logs, auditoria, IndexedDB ou na fila offline. O administrador deve compartilhá-las diretamente com o titular.
+
+Uma reserva de cadastro salva identidade e permissões, nunca a senha. Repetições com o mesmo pedido reutilizam a identidade e não redefinem a senha. Se a resposta se perder, mantenha os dados e tente novamente. Dados do pedido ficam protegidos em schema privado, sem acesso direto de clientes. Apenas a finalização após criação confirmada no Auth libera o perfil e registra auditoria. O cadastro público não foi habilitado no app.
+
+Validação: npm test e backend/verify-username-accounts.sql (transacional, com rollback).
