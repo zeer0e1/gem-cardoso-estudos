@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {IDBFactory} from 'fake-indexeddb';
+let counter=0;
+async function environment(){
+ globalThis.indexedDB=new IDBFactory();globalThis.window=new EventTarget();globalThis.document=new EventTarget();Object.defineProperty(globalThis,'navigator',{value:{onLine:true},configurable:true});
+ const nativeInterval=globalThis.setInterval;globalThis.setInterval=()=>0;
+ const api=await import('../data.js?test='+counter++);globalThis.setInterval=nativeInterval;
+ let user='A';const remote={students:[],studies:[],attendance:[]},receipts=new Map();let mutations=0,loseResponse=false,conflict=false;
+ globalThis.fetch=async(url,options)=>{const body=options.body?JSON.parse(options.body):{},path=new URL(url).pathname;
+  if(path.endsWith('/token')){user=body.email?.startsWith('b')?'B':'A';return Response.json({access_token:'token-'+user,refresh_token:'refresh-'+user,expires_in:3600,user:{id:user,email:body.email}})}
+  if(path.endsWith('/logout'))return Response.json({});
+  if(path.endsWith('/gem_snapshot'))return Response.json({...remote,profile:{id:user,name:'Instrutor '+user},synced_at:new Date().toISOString()});
+  if(path.endsWith('/gem_apply_operation')){if(conflict)return Response.json({message:'VERSION_CONFLICT'},{status:400});const id=body.operation_id;let result=receipts.get(id);if(!result){const p=body.operation.payload;result={operation_id:id,students:[{...p,version:1}],received_at:new Date().toISOString()};remote.students.push(result.students[0]);receipts.set(id,result);mutations++}if(loseResponse){loseResponse=false;throw new TypeError('Failed to fetch')}return Response.json(result)}
+  throw Error('Endpoint inesperado '+url);
+ };await api.init();return {api,remote,mutations:()=>mutations,loseNext:()=>loseResponse=true,conflictNext:()=>conflict=true};
+}
+test('timeout após gravação repete UUID e só remove da fila com recibo confirmado',async()=>{const e=await environment(),{api}=e;await api.login('a@example.test','unused');await api.queue('student',{id:'student1',name:'Teste',instrument:'Flauta',active:true,expected_version:0},{id:'op1'});e.loseNext();await api.sync(true);assert.equal(api.state.pending.length,1);assert.equal(e.mutations(),1);await api.sync(true);assert.equal(e.mutations(),1);assert.equal(api.state.pending.length,0);assert.equal(api.state.data.students.length,1)});
+test('fila offline é persistente e fica isolada por conta',async()=>{const {api}=await environment();await api.login('a@example.test','unused');navigator.onLine=false;await api.queue('student',{id:'s',name:'Aluno',instrument:'Violino',active:true},{id:'private-a'});await api.sync(true);assert.equal(api.state.pending.length,1);await api.logout();assert.equal(api.state.pending.length,0);navigator.onLine=true;await api.login('b@example.test','unused');assert.equal(api.state.pending.length,0);await api.login('a@example.test','unused');assert.equal(api.state.pending[0].id,'private-a');assert.equal(api.state.data.students[0].pending,true)});
+test('conflito preserva alterações e impede envio dos dependentes',async()=>{const e=await environment(),{api}=e;await api.login('a@example.test','unused');await api.queue('student',{id:'s',name:'Aluno',instrument:'Viola',active:true},{id:'op-conflict'});await api.queue('study',{id:'r',student_id:'s'},{id:'dependent'});e.conflictNext();await api.sync(true);assert.equal(api.state.pending.length,2);assert.equal(api.state.pending[0].status,'conflict');assert.equal(e.mutations(),0);assert.equal(api.state.data.studies.length,1)});
+test('sequência persistente mantém dependências criadas no mesmo milissegundo',async()=>{const {api}=await environment();await api.login('a@example.test','unused');const NativeDate=globalThis.Date;globalThis.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:['2026-11-06T12:00:00.000Z']))}};try{await api.queue('student',{id:'s',name:'Aluno',instrument:'Viola',active:true},{id:'z-student'});await api.queue('study',{id:'r',student_id:'s'},{id:'a-study'});assert.deepEqual(api.state.pending.map(o=>o.id),['z-student','a-study']);assert.equal(api.state.pending[0].created_at,api.state.pending[1].created_at);assert.ok(api.state.pending[0].sequence<api.state.pending[1].sequence)}finally{globalThis.Date=NativeDate}});
