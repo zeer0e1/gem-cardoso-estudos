@@ -1,5 +1,5 @@
 const PREFIX='gem-instructors-'+new URL(self.registration.scope).pathname;
-const CACHE=PREFIX+'-v2.2';
+const CACHE=PREFIX+'-v2.3';
 const ASSETS=['./','./index.html','./style.css','./teacher.css','./instructor-app.js','./data.js','./domain.js','./config.js','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith(PREFIX)&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
