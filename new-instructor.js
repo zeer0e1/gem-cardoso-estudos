@@ -26,6 +26,7 @@ export function newAccountEditor(onSaved){
    if(failure.message==='USERNAME_TAKEN'){requestId=crypto.randomUUID();attempted=false}
    // Após reservar, os dados de identidade devem continuar iguais ao repetir.
    if(attempted)for(const id of ['#new-name','#new-username','#new-role','#new-enabled'])$(id).disabled=true;
+   if(attempted&&failure.message!=='PASSWORD_REJECTED')for(const id of ['#new-password','#new-confirm'])$(id).readOnly=true;
   }finally{input.password=''}
  };
 }
