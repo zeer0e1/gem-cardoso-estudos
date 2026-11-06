@@ -11,6 +11,7 @@ Aplicativo web responsivo para instrutores acompanharem alunos, instrumentos, es
 - Painel mensal: alunos ativos, instrumentos distintos, estudos, frequência, distribuição de instrumentos e frequência individual.
 - IndexedDB com cópia da turma, rascunhos e fila por conta. Recibos idempotentes, atraso entre tentativas e tratamento explícito de conflitos.
 - Exportação JSON da cópia local da turma e dos pendentes. A exportação é uma cópia de segurança; não há importação nesta versão.
+- Página Instrutores para administradores: autorizar contas existentes, editar nomes, suspender acesso e definir administradores. Alterações online, com auditoria e proteção contra retirar o próprio acesso.
 
 ## Configuração e banco
 
@@ -18,7 +19,7 @@ Aplicativo web responsivo para instrutores acompanharem alunos, instrumentos, es
 
 Para um projeto novo: executar `backend/schema.sql`, depois `backend/hardening.sql`, uma única vez e nessa ordem. Os arquivos representam a instalação inicial; não são scripts de atualização para executar novamente sobre um banco preenchido. O segundo arquivo move as funções privilegiadas para um schema privado e expõe somente wrappers invoker. Todas as tabelas têm RLS e negam acesso direto a anon/authenticated. As funções verificam o perfil autorizado antes de ler ou gravar.
 
-Criar as contas em Supabase → Authentication → Users. Cada instrutor deve definir sua própria senha. Autorizar explicitamente o UUID e o nome no banco usando `backend/authorize-instructor.example.sql`. Criar conta no Auth, por si só, não concede acesso aos dados. Para desativar, alterar `enabled=false` no perfil. Não usar `user_metadata` para decisões de autorização.
+Criar as contas em Supabase → Authentication → Users. Cada instrutor deve definir sua própria senha. Depois de executar `backend/admin.sql`, o responsável promove o primeiro administrador no banco. Os demais acessos são gerenciados em Instrutores no aplicativo, informando o e-mail da conta já criada. `backend/authorize-instructor.example.sql` continua como alternativa de manutenção pelo responsável do projeto. Criar conta no Auth, por si só, não concede acesso aos dados. Para desativar, alterar `enabled=false` no perfil. Não usar `user_metadata` para decisões de autorização.
 
 Os instrutores autorizados compartilham a mesma turma do GEM. Esta versão ainda não separa escolas, turmas, horários ou múltiplas aulas na mesma data. As faltas justificadas continuam como ausência no cálculo; apenas registros efetivamente marcados entram no denominador.
 
@@ -44,5 +45,14 @@ Publicação: GitHub → Settings → Pages → Deploy from a branch → main �
 
 ## Limites desta etapa
 
-Sem upload de arquivos, recuperação de senha por interface ou administração de instrutores dentro do app. Recuperação e convites por e-mail dependem da configuração de envio do Supabase. Gerenciar os primeiros usuários no painel. O snapshot completo foi escolhido para a turma do protótipo; grandes volumes exigirão paginação e sincronização incremental. Os testes não substituem a validação em aparelhos Android e iPhone reais.
+Sem upload de arquivos, recuperação de senha ou criação de senhas de novas contas pela interface. A autorização e gestão de instrutores estão disponíveis para administradores dentro do app. Recuperação e convites por e-mail dependem da configuração de envio do Supabase. Gerenciar os primeiros usuários no painel. O snapshot completo foi escolhido para a turma do protótipo; grandes volumes exigirão paginação e sincronização incremental. Os testes não substituem a validação em aparelhos Android e iPhone reais.
 
+
+
+## Administração de instrutores
+
+Executar `backend/admin.sql` sobre a instalação v2 existente. Os perfis recebem `is_admin=false` por padrão. A promoção inicial deve usar o UUID e e-mail conferidos de quem administra o projeto; não se basear em nome ou metadados editáveis. A página Instrutores só aparece para um perfil ativo com `is_admin=true`, e todas as chamadas são verificadas novamente no banco. Nenhuma chave privilegiada é enviada ao navegador. Nomes alterados valem para registros futuros; fichas e chamadas antigas mantêm a autoria gravada.
+
+Somente contas existentes em Authentication > Users podem ser autorizadas por e-mail. A senha não é cadastrada nem alterada por esta página. As operações administrativas exigem internet e não entram na fila offline. O próprio administrador não pode se desativar nem se rebaixar. Mudanças concorrentes são recusadas por versão; a auditoria registra autor, alvo e valores anteriores e posteriores.
+
+`backend/verify-admin.sql` verifica permissões, autorização, suspensão, conflitos e auditoria com dados transacionais revertidos ao terminar.
