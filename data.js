@@ -1,5 +1,6 @@
 import {config} from './config.js';
 import {emptySnapshot,applyChanges,project} from './domain.js';
+import {isAdmin} from './admin.js';
 let db,session=null,snapshot=emptySnapshot(),outbox=[],drafts={},syncing=false,refreshPromise=null,epoch=0;
 export const state={data:emptySnapshot(),profile:null,pending:[],lastSync:null,error:null};
 const emit=()=>{state.data=project(snapshot,outbox,snapshot.profile||{id:session?.user.id,name:''});state.profile=snapshot.profile;state.pending=outbox;state.lastSync=snapshot.synced_at;window.dispatchEvent(new Event('gem-state'))};
@@ -9,6 +10,23 @@ async function get(k){return tx('settings','readonly',s=>s.get(k))}async functio
 export async function init(){db=await new Promise((resolve,reject)=>{const r=indexedDB.open('gem-cardoso-instructors',1);r.onupgradeneeded=()=>{r.result.createObjectStore('settings');r.result.createObjectStore('outbox',{keyPath:'id'})};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});session=await get('session');if(session){snapshot=(await get('snapshot:'+session.user.id))||emptySnapshot();drafts=(await get('drafts:'+session.user.id))||{};await loadOutbox()}emit()}
 async function loadOutbox(){outbox=(await tx('outbox','readonly',s=>s.getAll())).filter(o=>o.user_id===session?.user.id).sort((a,b)=>(a.sequence||0)-(b.sequence||0)||a.created_at.localeCompare(b.created_at))}
 export const currentUser=()=>session?.user||null;
+export const currentIsAdmin=()=>isAdmin(state.profile);
+export async function listInstructors(){
+ if(!navigator.onLine)throw Error('Conecte-se à internet para gerenciar os instrutores.');
+ if(!currentIsAdmin())throw Error('ADMIN_REQUIRED');
+ const before=epoch;const rows=await request('/rest/v1/rpc/gem_list_instructors',{},await token());
+ if(before!==epoch)throw Error('A sessão foi alterada.');
+ if(!Array.isArray(rows))throw Error('Não foi possível ler os perfis de instrutor.');return rows;
+}
+export async function manageInstructor(input){
+ if(!navigator.onLine)throw Error('Conecte-se à internet para alterar os acessos.');
+ if(!currentIsAdmin())throw Error('ADMIN_REQUIRED');
+ const before=epoch;
+ const result=await request('/rest/v1/rpc/gem_manage_instructor',input,await token());
+ if(before!==epoch)throw Error('A sessão foi alterada.');
+ if(!result?.id)throw Error('O servidor não confirmou a alteração. Atualize a lista antes de tentar novamente.');
+ await sync(true);return result;
+}
 async function request(path,body,token,method='POST'){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);try{const r=await fetch(config.url+path,{method,headers:{apikey:config.publishableKey,'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal:controller.signal});const data=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(data.message||data.msg||data.error_description||'Falha no serviço');e.status=r.status;e.code=data.code;throw e}return data}finally{clearTimeout(timer)}}
 async function token(){if(!session)throw Error('Faça login para sincronizar.');const beforeToken=epoch;const persisted=await get('session');if(beforeToken!==epoch||!session)throw Error('A sessão foi alterada.');if(persisted?.user.id!==session.user.id){epoch++;session=null;snapshot=emptySnapshot();outbox=[];drafts={};emit();throw Error('A sessão foi alterada em outra aba. Faça login novamente.');}session=persisted;if(session.expires_at*1000>Date.now()+60000)return session.access_token;if(!refreshPromise){const before=epoch;refreshPromise=request('/auth/v1/token?grant_type=refresh_token',{refresh_token:session.refresh_token}).then(async data=>{if(epoch!==before)throw Error('Sessão alterada.');session={...data,expires_at:Math.floor(Date.now()/1000)+data.expires_in};await set('session',session);return session.access_token}).catch(e=>{if(e.status===400||e.status===401){e.status=401;state.error='Sua sessão expirou. Entre novamente para enviar os dados pendentes.';emit()}throw e}).finally(()=>refreshPromise=null)}return refreshPromise}
 export async function login(email,password){if(!configured())throw Error('O banco do GEM ainda precisa ser conectado.');const data=await request('/auth/v1/token?grant_type=password',{email,password});const candidate={...data,expires_at:Math.floor(Date.now()/1000)+data.expires_in};const remote=await request('/rest/v1/rpc/gem_snapshot',{},candidate.access_token);epoch++;session=candidate;snapshot=remote;drafts=(await get('drafts:'+session.user.id))||{};await set('session',session);await set('snapshot:'+session.user.id,snapshot);await loadOutbox();state.error=null;emit()}
