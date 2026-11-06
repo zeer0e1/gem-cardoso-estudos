@@ -1,6 +1,7 @@
 import * as api from './data.js';
 import {instructorError} from './admin.js';
 import {newAccountEditor} from './new-instructor.js';
+import {resetPasswordPage} from './reset-password.js';
 const $=selector=>document.querySelector(selector);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let version=0,rows=[];
@@ -20,7 +21,8 @@ export async function instructorsPage(){
 function filter(){
  const q=$('#instructor-search').value.trim().toLocaleLowerCase('pt-BR');
  const matches=rows.filter(r=>[r.name,r.email,r.username].some(v=>String(v||'').toLocaleLowerCase('pt-BR').includes(q)));
- $('#instructor-list').innerHTML=matches.length?matches.map(row=>`<article class="record instructor-row"><span class="avatar">${esc(row.name.slice(0,1))}</span><div class="record-info"><h3>${esc(row.name)}${row.id===api.state.profile.id?' <span class="badge">Você</span>':''}</h3><p>${row.username?'Usuário: '+esc(row.username):esc(row.email)}</p><div class="instructor-labels"><span class="status ${row.enabled?'present':'absent'}">${row.enabled?'Acesso ativo':'Sem acesso'}</span><span class="badge">${row.is_admin?'Administrador':'Instrutor'}</span></div></div><button class="button secondary small" data-instructor-id="${row.id}">Gerenciar</button></article>`).join(''):'<div class="card empty"><div><h3>Nenhum instrutor encontrado</h3><p>Confira a busca ou autorize uma conta existente.</p></div></div>';
+ $('#instructor-list').innerHTML=matches.length?matches.map(row=>`<article class="record instructor-row"><span class="avatar">${esc(row.name.slice(0,1))}</span><div class="record-info"><h3>${esc(row.name)}${row.id===api.state.profile.id?' <span class="badge">Você</span>':''}</h3><p>${row.username?'Usuário: '+esc(row.username):esc(row.email)}</p><div class="instructor-labels"><span class="status ${row.enabled?'present':'absent'}">${row.enabled?'Acesso ativo':'Sem acesso'}</span><span class="badge">${row.is_admin?'Administrador':'Instrutor'}</span></div></div><div class="instructor-actions"><button class="button secondary small" data-instructor-id="${row.id}">Gerenciar</button><button class="button text small" data-reset-id="${row.id}" ${navigator.onLine?'':'disabled'}>Redefinir senha</button></div></article>`).join(''):'<div class="card empty"><div><h3>Nenhum instrutor encontrado</h3><p>Confira a busca ou autorize uma conta existente.</p></div></div>';
+ document.querySelectorAll('[data-reset-id]').forEach(button=>button.onclick=()=>resetPasswordPage(rows.find(row=>row.id===button.dataset.resetId),instructorsPage));
  document.querySelectorAll('[data-instructor-id]').forEach(button=>button.onclick=()=>editor(rows.find(row=>row.id===button.dataset.instructorId)));
 }
 function editor(row){

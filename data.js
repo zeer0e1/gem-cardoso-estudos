@@ -12,6 +12,15 @@ export async function init(){db=await new Promise((resolve,reject)=>{const r=ind
 async function loadOutbox(){outbox=(await tx('outbox','readonly',s=>s.getAll())).filter(o=>o.user_id===session?.user.id).sort((a,b)=>(a.sequence||0)-(b.sequence||0)||a.created_at.localeCompare(b.created_at))}
 export const currentUser=()=>session?.user||null;
 export const currentIsAdmin=()=>isAdmin(state.profile);
+export async function resetInstructorPassword(input){
+ if(!navigator.onLine)throw Error('Conecte-se à internet para redefinir a senha.');
+ if(!currentIsAdmin())throw Error('ADMIN_REQUIRED');
+ const before=epoch;
+ const result=await request('/functions/v1/gem-create-instructor',{...input,action:'reset_password'},await token());
+ if(before!==epoch)throw Error('A sessão foi alterada.');
+ if(result?.id!==input.target_id||result.reset!==true)throw Error('RESET_NOT_CONFIRMED');
+ return result;
+}
 export async function checkAccountCreation(){
  if(!navigator.onLine||!currentIsAdmin())throw Error('ADMIN_REQUIRED');
  const result=await request('/functions/v1/gem-create-instructor',{action:'check'},await token());

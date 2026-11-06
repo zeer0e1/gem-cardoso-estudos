@@ -17,15 +17,29 @@ export function createHandler(env,fetcher=fetch){
    const result=await response.json().catch(()=>({}));
    if(!response.ok){const error=new Error(result.message||result.msg||'SERVICE_FAILURE');error.status=response.status;throw error}return result;
   }
+  let resetting=false;
   try{
-   try{await call('/auth/v1/user',undefined,false,'GET')}catch(error){if([400,401,403].includes(error.status))return reply(401,{message:'LOGIN_REQUIRED'});throw error}
+   let actor;
+   try{actor=await call('/auth/v1/user',undefined,false,'GET')}catch(error){if([400,401,403].includes(error.status))return reply(401,{message:'LOGIN_REQUIRED'});throw error}
    // A verificação no banco usa o perfil atual, sem confiar em metadados do cliente.
-   await call('/rest/v1/rpc/gem_list_instructors',{});
+   const instructors=await call('/rest/v1/rpc/gem_list_instructors',{});
    if(Number(request.headers.get('content-length'))>12000)return reply(400,{message:'INVALID_ACCOUNT'});
    const text=await request.text();if(text.length>12000)return reply(400,{message:'INVALID_ACCOUNT'});
    let input;try{input=JSON.parse(text)}catch{return reply(400,{message:'INVALID_ACCOUNT'})}
    if(input?.action==='check')return reply(200,{ready:true});
    if(!input||typeof input!=='object')return reply(400,{message:'INVALID_ACCOUNT'});
+   if(input.action==='reset_password'){
+    resetting=true;
+    if(typeof input.password!=='string'||input.password.length<8||input.password.length>128||!/^[0-9a-f-]{36}$/.test(input.request_id||'')||!/^[0-9a-f-]{36}$/.test(input.target_id||''))return reply(400,{message:'INVALID_RESET'});
+    if(!Array.isArray(instructors)||!instructors.some(row=>row.id===input.target_id))return reply(404,{message:'INSTRUCTOR_NOT_FOUND'});
+    const ticket=await call('/rest/v1/rpc/gem_begin_password_reset',{request_id:input.request_id,target_user_id:input.target_id});
+    if(ticket.completed)return reply(200,{id:ticket.target_id,reset:true});
+    const updated=await call('/auth/v1/admin/users/'+input.target_id,{password:input.password},true,'PUT');
+    if(updated.id!==input.target_id)throw Error('RESET_NOT_CONFIRMED');
+    const result=await call('/rest/v1/rpc/gem_complete_password_reset',{request_id:input.request_id,actor_user_id:actor.id},true);
+    if(result.id!==input.target_id||result.reset!==true)throw Error('RESET_NOT_CONFIRMED');
+    return reply(200,result);
+   }
    if(typeof input.password!=='string'||input.password.length<8||input.password.length>128||typeof input.username!=='string'||!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(input.username)||typeof input.name!=='string'||input.name.trim().length<2||input.name.trim().length>200||typeof input.is_admin!=='boolean'||typeof input.enabled!=='boolean'||!/^[0-9a-f-]{36}$/.test(input.request_id||''))return reply(400,{message:'INVALID_ACCOUNT'});
    const reservation=await call('/rest/v1/rpc/gem_reserve_account',{request_id:input.request_id,login_name:input.username,display_name:input.name,admin_access:input.is_admin,allow_access:input.enabled});
    if(!reservation.completed){
@@ -41,11 +55,11 @@ export function createHandler(env,fetcher=fetch){
    const profile=await call('/rest/v1/rpc/gem_finish_account',{request_id:reservation.id});
    return reply(200,profile);
   }catch(error){
-   const known=['ADMIN_REQUIRED','USERNAME_TAKEN','REQUEST_REUSED','INVALID_ACCOUNT','ACCOUNT_NOT_READY','REQUEST_NOT_FOUND'];
+   const known=['ADMIN_REQUIRED','USERNAME_TAKEN','REQUEST_REUSED','INVALID_ACCOUNT','ACCOUNT_NOT_READY','REQUEST_NOT_FOUND','INSTRUCTOR_NOT_FOUND'];
    if(known.includes(error.message))return reply(error.message==='ADMIN_REQUIRED'?403:409,{message:error.message});
    if(error.status===401)return reply(401,{message:'LOGIN_REQUIRED'});
    if(/password|weak/i.test(error.message))return reply(400,{message:'PASSWORD_REJECTED'});
-   return reply(503,{message:'CREATE_NOT_CONFIRMED'});
+   return reply(503,{message:resetting?'RESET_NOT_CONFIRMED':'CREATE_NOT_CONFIRMED'});
   }
  };
 }

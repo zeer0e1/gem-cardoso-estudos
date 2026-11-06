@@ -62,8 +62,18 @@ Administradores podem abrir Instrutores → Cadastrar instrutor e informar nome,
 
 Instale backend/username-accounts.sql depois de admin.sql. Implante backend/create-instructor/index.js como função gem-create-instructor (index.ts no editor). A função valida o token com Auth, confere o administrador ativo no banco, reserva uma identidade estável e usa a API administrativa de Auth apenas no servidor. Usa SUPABASE_URL, SUPABASE_ANON_KEY e SUPABASE_SERVICE_ROLE_KEY do ambiente do Supabase; nunca copie chaves privilegiadas para o cliente. A verificação JWT no gateway pode ficar habilitada quando compatível com os tokens do projeto; a função também verifica a autenticação internamente.
 
-O endereço interno usuario@login.gem.invalid é somente um identificador técnico do Supabase, sem caixa de correio. Não existe recuperação de senha por e-mail para essas contas. A redefinição ainda exige o responsável pelo projeto; esta versão não tem uma página de troca de senha. Senhas não entram em logs, auditoria, IndexedDB ou na fila offline. O administrador deve compartilhá-las diretamente com o titular.
+O endereço interno usuario@login.gem.invalid é somente um identificador técnico do Supabase, sem caixa de correio. Não existe recuperação de senha por e-mail para essas contas. Administradores podem redefinir a senha pela página Instrutores, no botão Redefinir senha. Senhas não entram em logs, auditoria, IndexedDB ou na fila offline. O administrador deve compartilhá-las diretamente com o titular.
 
 Uma reserva de cadastro salva identidade e permissões, nunca a senha. Repetições com o mesmo pedido reutilizam a identidade e não redefinem a senha. Se a resposta se perder, mantenha os dados e tente novamente. Dados do pedido ficam protegidos em schema privado, sem acesso direto de clientes. Apenas a finalização após criação confirmada no Auth libera o perfil e registra auditoria. O cadastro público não foi habilitado no app.
 
 Validação: npm test e backend/verify-username-accounts.sql (transacional, com rollback).
+
+
+### Redefinir senhas pelo aplicativo
+Em Instrutores, selecione Redefinir senha na conta desejada. Confira o nome e o usuário, digite a nova senha duas vezes e marque a confirmação. Exige internet e um administrador ativo. Compartilhe a senha diretamente com o titular. O acesso, o papel, os alunos, as fichas e as chamadas continuam preservados, inclusive quando a conta está desativada.
+
+Instale backend/password-reset.sql e atualize a função gem-create-instructor com backend/create-instructor/index.js. A função valida o token, consulta o papel atual do administrador e limita o alvo às contas de instrutor existentes. A senha é enviada somente ao Supabase Auth pela API administrativa no servidor; o cliente nunca recebe a chave privilegiada.
+
+O registro privado do pedido e a auditoria contêm apenas identificadores e datas, sem senha. A confirmação de auditoria só pode ser executada pelo servidor (service_role). Repetir um pedido já confirmado não altera a senha outra vez. Se a conexão cair antes da confirmação, a senha pode ter sido aplicada: mantenha o mesmo valor e repita. Não use o mesmo pedido para trocar novamente a senha depois de uma confirmação. Redefinições simultâneas seguem a última alteração aplicada pelo Auth.
+
+A operação não entra na fila offline. Os campos são limpos ao fechar e após sucesso; o botão de fechar fica bloqueado durante o envio. As sessões seguem as regras de revogação e expiração do Supabase Auth; conteúdo já armazenado offline não é apagado remotamente. Validação: testes automatizados do endpoint e backend/verify-password-reset.sql (transacional, com rollback, sem modificar senhas reais).
