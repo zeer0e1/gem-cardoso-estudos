@@ -51,6 +51,14 @@ export async function createInstructor(input){
  if(!result?.id||result.username!==input.username)throw Error('CREATE_NOT_CONFIRMED');
  return result;
 }
+export async function editStudyRecord(input){
+ if(!navigator.onLine)throw Error('Conecte-se para editar a ficha.');
+ const before=epoch,user=session?.user.id;
+ const result=await request('/rest/v1/rpc/gem_edit_study',input,await token());
+ if(before!==epoch)throw Error('Sessão alterada.');
+ if(result.operation_id!==input.operation_id)throw Error('Edição não confirmada.');
+ snapshot=applyChanges(snapshot,result);await set('snapshot:'+user,snapshot);emit();return result;
+}
 async function request(path,body,token,method='POST'){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);try{const r=await fetch(config.url+path,{method,headers:{apikey:config.publishableKey,'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal:controller.signal});const data=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(data.message||data.msg||data.error_description||'Falha no serviço');e.status=r.status;e.code=data.code;throw e}return data}finally{clearTimeout(timer)}}
 async function token(){if(!session)throw Error('Faça login para sincronizar.');const beforeToken=epoch;const persisted=await get('session');if(beforeToken!==epoch||!session)throw Error('A sessão foi alterada.');if(persisted?.user.id!==session.user.id){epoch++;session=null;snapshot=emptySnapshot();outbox=[];drafts={};emit();throw Error('A sessão foi alterada em outra aba. Faça login novamente.');}session=persisted;if(session.expires_at*1000>Date.now()+60000)return session.access_token;if(!refreshPromise){const before=epoch;refreshPromise=request('/auth/v1/token?grant_type=refresh_token',{refresh_token:session.refresh_token}).then(async data=>{if(epoch!==before)throw Error('Sessão alterada.');session={...data,expires_at:Math.floor(Date.now()/1000)+data.expires_in};await set('session',session);return session.access_token}).catch(e=>{if(e.status===400||e.status===401){e.status=401;state.error='Sua sessão expirou. Entre novamente para enviar os dados pendentes.';emit()}throw e}).finally(()=>refreshPromise=null)}return refreshPromise}
 export async function login(email,password){email=loginEmail(email);if(!configured())throw Error('O banco do GEM ainda precisa ser conectado.');const data=await request('/auth/v1/token?grant_type=password',{email,password});const candidate={...data,expires_at:Math.floor(Date.now()/1000)+data.expires_in};const remote=await request('/rest/v1/rpc/gem_snapshot',{},candidate.access_token);epoch++;session=candidate;snapshot=remote;drafts=(await get('drafts:'+session.user.id))||{};await set('session',session);await set('snapshot:'+session.user.id,snapshot);await loadOutbox();state.error=null;emit()}
